@@ -239,7 +239,7 @@ def _render_stats(total: int, extracted: int, empty: int):
 
 # ── Tabs ──────────────────────────────────────────────────────────
 
-tab_single, tab_bulk = st.tabs(["📄  Single PDF Upload", "📁  Bulk Folder Processing"])
+tab_single, tab_bulk = st.tabs(["📄  Single PDF Upload", "📁  Bulk PDF Upload"])
 
 # ── Tab 1 — Single Upload ─────────────────────────────────────────
 
@@ -293,99 +293,88 @@ with tab_single:
 # ── Tab 2 — Bulk Folder ──────────────────────────────────────────
 
 with tab_bulk:
-    st.markdown("#### Process all PDFs in a folder")
-    folder_path = st.text_input(
-        "Folder path",
-        placeholder="/Users/you/Desktop/patient_reports",
-        help="Paste the absolute path to a folder containing InstaKC PDF reports.",
+    st.markdown("#### Upload multiple InstaKC PDF reports")
+    bulk_files = st.file_uploader(
+        "Choose PDF files",
+        type=["pdf"],
+        accept_multiple_files=True,
+        key="bulk_pdfs",
+        help="Select one or more Remidio InstaKC corneal topography reports (PDF).",
     )
 
-    col_start, _ = st.columns([1, 3])
-    with col_start:
-        start_bulk = st.button("🚀  Start Bulk Extraction", type="primary", use_container_width=True)
+    if bulk_files:
+        col_start, _ = st.columns([1, 3])
+        with col_start:
+            start_bulk = st.button("🚀  Start Bulk Extraction", type="primary", use_container_width=True)
 
-    if start_bulk and folder_path:
-        folder = Path(folder_path)
+        if start_bulk:
+            all_records: list[dict] = []
+            progress_bar = st.progress(0, text="Starting…")
 
-        if not folder.is_dir():
-            st.error(f"❌  The path **{folder_path}** is not a valid directory.")
-        else:
-            pdf_files = sorted(folder.glob("*.pdf")) + sorted(folder.glob("*.PDF"))
-            # De-duplicate (in case *.pdf and *.PDF overlap on case-insensitive FS)
-            seen = set()
-            unique_pdfs = []
-            for p in pdf_files:
-                resolved = p.resolve()
-                if resolved not in seen:
-                    seen.add(resolved)
-                    unique_pdfs.append(p)
-            pdf_files = unique_pdfs
+            for idx, pdf_file in enumerate(bulk_files):
+                progress_bar.progress(
+                    (idx + 1) / len(bulk_files),
+                    text=f"Processing {idx + 1}/{len(bulk_files)} — {pdf_file.name}",
+                )
+                try:
+                    # Save uploaded file to a temp location for pdf2image
+                    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                        tmp.write(pdf_file.getvalue())
+                        tmp_path = tmp.name
 
-            if not pdf_files:
-                st.warning("⚠️  No PDF files found in the specified folder.")
-            else:
-                all_records: list[dict] = []
-                progress_bar = st.progress(0, text="Starting…")
+                    details = extract_patient_details(tmp_path)
+                    details["_source_file"] = pdf_file.name
+                    all_records.append(details)
+                except Exception as e:
+                    st.toast(f"⚠️ Skipped {pdf_file.name}: {e}", icon="⚠️")
 
-                for idx, pdf_file in enumerate(pdf_files):
-                    progress_bar.progress(
-                        (idx + 1) / len(pdf_files),
-                        text=f"Processing {idx + 1}/{len(pdf_files)} — {pdf_file.name}",
-                    )
-                    try:
-                        details = extract_patient_details(str(pdf_file))
-                        details["_source_file"] = pdf_file.name
-                        all_records.append(details)
-                    except Exception as e:
-                        st.toast(f"⚠️ Skipped {pdf_file.name}: {e}", icon="⚠️")
+            progress_bar.progress(1.0, text="Done ✅")
 
-                progress_bar.progress(1.0, text="Done ✅")
+            if all_records:
+                # Stats
+                total_fields = sum(len(COLUMNS) for _ in all_records)
+                filled = sum(
+                    1
+                    for rec in all_records
+                    for col in COLUMNS
+                    if rec.get(col)
+                )
+                empty = total_fields - filled
 
-                if all_records:
-                    # Stats
-                    total_fields = sum(len(COLUMNS) for _ in all_records)
-                    filled = sum(
-                        1
-                        for rec in all_records
-                        for col in COLUMNS
-                        if rec.get(col)
-                    )
-                    empty = total_fields - filled
+                _render_stats(len(all_records), filled, empty)
 
-                    _render_stats(len(all_records), filled, empty)
-
-                    # Show each patient card (collapsed after a few)
-                    for i, rec in enumerate(all_records):
-                        display = {k: rec.get(k, "") for k in COLUMNS}
-                        _render_detail_card(
-                            display,
-                            title=f"📋  {rec.get('_source_file', f'Patient {i+1}')}",
-                        )
-
-                    # Full dataframe
-                    with st.expander("📊 Full Data Table", expanded=True):
-                        df = pd.DataFrame(all_records)
-                        # Move source file to front
-                        cols = ["_source_file"] + COLUMNS
-                        df = df[[c for c in cols if c in df.columns]]
-                        df = df.rename(columns={"_source_file": "Source File"})
-                        st.dataframe(df, use_container_width=True, hide_index=True)
-
-                    # Build Excel (without internal _source_file column)
-                    excel_bytes = _build_excel(all_records)
-                    st.download_button(
-                        label=f"⬇️  Download Excel ({len(all_records)} patients)",
-                        data=excel_bytes,
-                        file_name="patient_details_bulk.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        type="primary",
-                        use_container_width=True,
+                # Show each patient card
+                for i, rec in enumerate(all_records):
+                    display = {k: rec.get(k, "") for k in COLUMNS}
+                    _render_detail_card(
+                        display,
+                        title=f"📋  {rec.get('_source_file', f'Patient {i+1}')}",
                     )
 
-                    st.markdown(
-                        '<div class="success-banner">✅ Bulk extraction complete — download your Excel above.</div>',
-                        unsafe_allow_html=True,
-                    )
+                # Full dataframe
+                with st.expander("📊 Full Data Table", expanded=True):
+                    df = pd.DataFrame(all_records)
+                    # Move source file to front
+                    cols = ["_source_file"] + COLUMNS
+                    df = df[[c for c in cols if c in df.columns]]
+                    df = df.rename(columns={"_source_file": "Source File"})
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+
+                # Build Excel (without internal _source_file column)
+                excel_bytes = _build_excel(all_records)
+                st.download_button(
+                    label=f"⬇️  Download Excel ({len(all_records)} patients)",
+                    data=excel_bytes,
+                    file_name="patient_details_bulk.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary",
+                    use_container_width=True,
+                )
+
+                st.markdown(
+                    '<div class="success-banner">✅ Bulk extraction complete — download your Excel above.</div>',
+                    unsafe_allow_html=True,
+                )
 
 # ── Footer ────────────────────────────────────────────────────────
 st.markdown("---")
