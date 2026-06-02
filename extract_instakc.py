@@ -11,6 +11,7 @@ HOW TO USE:
 """
 
 import re
+import platform
 from pathlib import Path
 
 from pdf2image import convert_from_path
@@ -23,9 +24,13 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 #  CONFIGURE HERE — set your PDF path(s) and output file location
 # ═══════════════════════════════════════════════════════════════════
 
-# Poppler bin directory (relative to this script)
+# Poppler bin directory — only needed on Windows (local dev).
+# On Linux / Streamlit Cloud, poppler-utils is installed via packages.txt.
 _SCRIPT_DIR = Path(__file__).resolve().parent
-POPPLER_PATH = str(_SCRIPT_DIR / "poppler" / "poppler-24.08.0" / "Library" / "bin")
+if platform.system() == "Windows":
+    POPPLER_PATH = str(_SCRIPT_DIR / "poppler" / "poppler-24.08.0" / "Library" / "bin")
+else:
+    POPPLER_PATH = None  # system PATH on Linux
 
 # Single PDF — just set the path as a string:
 PDF_PATH = r"C:\Users\shivam.prajapati\Downloads\150101001006020282.pdf"
