@@ -23,8 +23,12 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 #  CONFIGURE HERE — set your PDF path(s) and output file location
 # ═══════════════════════════════════════════════════════════════════
 
+# Poppler bin directory (relative to this script)
+_SCRIPT_DIR = Path(__file__).resolve().parent
+POPPLER_PATH = str(_SCRIPT_DIR / "poppler" / "poppler-24.08.0" / "Library" / "bin")
+
 # Single PDF — just set the path as a string:
-PDF_PATH = r"/Users/shivamprajapati/Downloads/15010100110020042.pdf"
+PDF_PATH = r"C:\Users\shivam.prajapati\Downloads\150101001006020282.pdf"
 
 # Multiple PDFs — use a list instead (comment out the line above and
 # uncomment the block below):
@@ -44,7 +48,7 @@ OUTPUT_XLSX = r"patient_details.xlsx"
 
 def _ocr_pdf(pdf_path: str, dpi: int = 200) -> str:
     """Convert PDF pages to images and run Tesseract OCR; return full text."""
-    pages = convert_from_path(pdf_path, dpi=dpi)
+    pages = convert_from_path(pdf_path, dpi=dpi, poppler_path=POPPLER_PATH)
     return "\n".join(pytesseract.image_to_string(page) for page in pages)
 
 
